@@ -1,0 +1,32 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: lo10-devops-lab:1.0.1
+
+    container_name: lo10-devops-lab
+
+    ports:
+      - "8081:8080"
+
+    environment:
+      SERVER_PORT: 8080
+      JAVA_OPTS: >-
+        -XX:MaxRAMPercentage=75.0
+        -XX:+ExitOnOutOfMemoryError
+
+    restart: unless-stopped
+
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - http://localhost:8080/actuator/health
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
