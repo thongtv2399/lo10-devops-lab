@@ -1,0 +1,1492 @@
+============================================================
+LO10_ASSIGNMENT.txt
+============================================================
+
+UNIT 6 - CI/CD, DOCKER, LOGGING VÀ GIT WORKFLOW
+LO10 - CI/CD, DOCKER, LOGGING VÀ GIT
+
+Học viên: Thong Truong Van
+Project: lo10-devops-lab
+Java: 21
+Spring Boot: 4.1.1
+Build Tool: Maven
+Testing: JUnit 5, Mockito và MockMvc
+
+============================================================
+1. MỤC TIÊU
+============================================================
+
+Assignment tập trung vào các nội dung chính của LO10:
+
+- Hiểu Docker Image và Docker Container.
+- Hiểu Docker Build Context.
+- Sử dụng .dockerignore.
+- Xây dựng Multi-stage Dockerfile.
+- Tạo Runtime Image tối giản.
+- Chạy Java Application bằng non-root user.
+- Cấu hình Docker Health Check.
+- Sử dụng Docker Compose.
+- Cấu hình Graceful Shutdown.
+- Thiết lập Structured JSON Logging.
+- Triển khai Correlation ID bằng MDC.
+- Xây dựng Continuous Integration Pipeline.
+- Chạy Automated Test trên GitHub Actions.
+- Package Spring Boot JAR.
+- Build Docker Image trong CI.
+- Upload CI Artifacts.
+- Áp dụng Feature Branch Workflow.
+- Áp dụng Conventional Commits.
+- Sử dụng Pull Request Template.
+- Bảo vệ nhánh main bằng Branch Protection Ruleset.
+
+============================================================
+2. PHẠM VI PROJECT
+============================================================
+
+Project được tạo độc lập với tên:
+
+lo10-devops-lab
+
+Project chỉ tập trung vào LO10.
+
+Project không sử dụng:
+
+- Spring Data JPA.
+- MySQL.
+- Database thật.
+- Spring Security.
+- AWS SDK.
+- SQS.
+- Kafka.
+- Kubernetes.
+- Microservices phức tạp.
+
+Ứng dụng chỉ cung cấp một REST API nhỏ làm nền tảng
+cho Docker, CI/CD, Logging và Git Workflow.
+
+============================================================
+3. CÔNG NGHỆ SỬ DỤNG
+============================================================
+
+- Java 21.
+- Spring Boot 4.1.1.
+- Maven Wrapper.
+- Spring Web.
+- Spring Boot Actuator.
+- Jakarta Validation.
+- JUnit 5.
+- Mockito.
+- MockMvc.
+- Docker Desktop.
+- Docker Compose.
+- Git.
+- GitHub.
+- GitHub Actions.
+- SLF4J.
+- Logback.
+- MDC.
+- Structured JSON Logging.
+
+============================================================
+4. KIẾN TRÚC ỨNG DỤNG
+============================================================
+
+Request Flow:
+
+Client
+  |
+  v
+CorrelationIdFilter
+  |
+  v
+Spring Boot Controller
+  |
+  v
+MessageService
+  |
+  v
+ConcurrentHashMap
+
+------------------------------------------------------------
+
+Health Flow:
+
+Client
+  |
+  v
+GET /api/health
+  |
+  v
+HealthController
+  |
+  v
+HTTP 200
+  |
+  v
+status = UP
+
+------------------------------------------------------------
+
+Message Flow:
+
+Client
+  |
+  v
+POST /api/messages
+  |
+  v
+Request Validation
+  |
+  v
+MessageController
+  |
+  v
+MessageService
+  |
+  v
+ConcurrentHashMap
+  |
+  v
+HTTP 201 Created
+
+============================================================
+5. CẤU TRÚC PROJECT
+============================================================
+
+lo10-devops-lab
+|
+|-- .github
+|   |-- workflows
+|   |   `-- ci.yml
+|   |
+|   `-- pull_request_template.md
+|
+|-- .mvn
+|   `-- wrapper
+|       `-- maven-wrapper.properties
+|
+|-- src
+|   |-- main
+|   |   |-- java
+|   |   |   `-- com.thongtv5.lo10devopslab
+|   |   |       |-- Lo10DevopsLabApplication.java
+|   |   |       |
+|   |   |       |-- controller
+|   |   |       |   |-- HealthController.java
+|   |   |       |   `-- MessageController.java
+|   |   |       |
+|   |   |       |-- dto
+|   |   |       |   |-- CreateMessageRequest.java
+|   |   |       |   `-- MessageResponse.java
+|   |   |       |
+|   |   |       |-- logging
+|   |   |       |   `-- CorrelationIdFilter.java
+|   |   |       |
+|   |   |       `-- service
+|   |   |           `-- MessageService.java
+|   |   |
+|   |   `-- resources
+|   |       `-- application.properties
+|   |
+|   `-- test
+|       `-- java
+|           `-- com.thongtv5.lo10devopslab
+|               |-- Lo10DevopsLabApplicationTests.java
+|               |
+|               |-- controller
+|               |   |-- HealthControllerTest.java
+|               |   `-- MessageControllerTest.java
+|               |
+|               |-- logging
+|               |   `-- CorrelationIdFilterTest.java
+|               |
+|               `-- service
+|                   `-- MessageServiceTest.java
+|
+|-- .dockerignore
+|-- .gitattributes
+|-- .gitignore
+|-- Dockerfile
+|-- compose.yml
+|-- GIT_WORKFLOW.md
+|-- LO10_ASSIGNMENT.txt
+|-- README.md
+|-- mvnw
+|-- mvnw.cmd
+`-- pom.xml
+
+============================================================
+6. HEALTH API
+============================================================
+
+Endpoint:
+
+GET /api/health
+
+Response:
+
+HTTP 200 OK
+
+{
+  "status": "UP",
+  "service": "lo10-devops-lab",
+  "timestamp": "..."
+}
+
+Mục đích:
+
+- Kiểm tra ứng dụng đang hoạt động.
+- Làm Smoke Test cho CI/CD.
+- Làm endpoint kiểm tra thủ công.
+- Hỗ trợ kiểm tra ứng dụng trong container.
+
+Ngoài endpoint tùy chỉnh, ứng dụng còn sử dụng
+Spring Boot Actuator.
+
+Các endpoint Actuator:
+
+- /actuator/health
+- /actuator/info
+- /actuator/health/liveness
+- /actuator/health/readiness
+
+============================================================
+7. MESSAGE API
+============================================================
+
+7.1 Tạo Message
+
+Endpoint:
+
+POST /api/messages
+
+Request:
+
+{
+  "content": "Docker and CI/CD are ready"
+}
+
+Response:
+
+HTTP 201 Created
+
+Location: /api/messages/1
+
+{
+  "id": 1,
+  "content": "Docker and CI/CD are ready",
+  "createdAt": "..."
+}
+
+------------------------------------------------------------
+
+7.2 Lấy Message
+
+Endpoint:
+
+GET /api/messages/{id}
+
+Nếu Message tồn tại:
+
+HTTP 200 OK
+
+Nếu Message không tồn tại:
+
+HTTP 404 Not Found
+
+------------------------------------------------------------
+
+7.3 Validation
+
+Trường content:
+
+- Không được null.
+- Không được rỗng.
+- Không được chỉ chứa khoảng trắng.
+- Không được vượt quá 500 ký tự.
+
+Request không hợp lệ trả về:
+
+HTTP 400 Bad Request
+
+============================================================
+8. IN-MEMORY SERVICE
+============================================================
+
+MessageService sử dụng:
+
+ConcurrentHashMap<Long, MessageResponse>
+
+Mục đích:
+
+- Lưu Message trong memory.
+- Hỗ trợ nhiều thread truy cập an toàn hơn.
+- Không cần Database cho Assignment LO10.
+
+ID được tạo bằng:
+
+AtomicLong
+
+Mục đích:
+
+- Tạo ID tăng tuần tự.
+- Hỗ trợ nhiều request đồng thời.
+- Tránh race condition khi sinh ID.
+
+Giới hạn:
+
+- Dữ liệu bị mất khi application dừng.
+- Không phù hợp để lưu dữ liệu Production.
+- Chỉ phục vụ project thực hành LO10.
+
+============================================================
+9. AUTOMATED TESTING
+============================================================
+
+Các test đã triển khai:
+
+Lo10DevopsLabApplicationTests
+- Kiểm tra Spring Application Context.
+- Tests run: 1.
+
+HealthControllerTest
+- Kiểm tra GET /api/health.
+- Kiểm tra HTTP 200.
+- Kiểm tra JSON response.
+- Kiểm tra endpoint không tồn tại trả về 404.
+- Tests run: 2.
+
+MessageServiceTest
+- Kiểm tra tạo Message.
+- Kiểm tra chuẩn hóa content.
+- Kiểm tra ID tăng tuần tự.
+- Kiểm tra tìm Message theo ID.
+- Kiểm tra ID không tồn tại.
+- Kiểm tra ID null.
+- Kiểm tra clear và reset ID.
+- Tests run: 7.
+
+MessageControllerTest
+- Kiểm tra POST /api/messages.
+- Kiểm tra HTTP 201.
+- Kiểm tra Location Header.
+- Kiểm tra blank content.
+- Kiểm tra missing content.
+- Kiểm tra GET Message thành công.
+- Kiểm tra GET Message không tồn tại.
+- Kiểm tra ID không hợp lệ.
+- Tests run: 6.
+
+CorrelationIdFilterTest
+- Kiểm tra giữ Correlation ID từ Client.
+- Kiểm tra tự tạo UUID khi thiếu Header.
+- Kiểm tra tự tạo UUID khi Header rỗng.
+- Kiểm tra loại bỏ khoảng trắng.
+- Tests run: 4.
+
+------------------------------------------------------------
+
+Kết quả tổng:
+
+Tests run: 20
+Failures: 0
+Errors: 0
+Skipped: 0
+
+BUILD SUCCESS
+
+============================================================
+10. DOCKER BUILD CONTEXT
+============================================================
+
+Docker Build Context là tập hợp file mà Docker Builder
+có thể truy cập trong quá trình build.
+
+Khi chạy:
+
+docker build .
+
+Dấu chấm đại diện cho thư mục hiện tại được sử dụng
+làm Build Context.
+
+Nếu không giới hạn Build Context, Docker có thể nhận:
+
+- Git history.
+- Local build output.
+- IDE metadata.
+- Log file.
+- Temporary file.
+- Local environment file.
+- Secret file.
+
+Project sử dụng:
+
+.dockerignore
+
+Các nội dung bị loại khỏi Build Context:
+
+- target/
+- .git/
+- .settings/
+- .project
+- .classpath
+- .idea/
+- .vscode/
+- File log.
+- File temporary.
+- .DS_Store.
+- .env.
+- secrets/.
+
+Lợi ích:
+
+- Giảm kích thước Build Context.
+- Tăng tốc Docker Build.
+- Giảm nguy cơ đưa file nhạy cảm vào Builder.
+- Tránh sử dụng nhầm local build output.
+
+============================================================
+11. MULTI-STAGE DOCKER BUILD
+============================================================
+
+Dockerfile sử dụng hai stage:
+
+- Build Stage.
+- Runtime Stage.
+
+------------------------------------------------------------
+11.1 Build Stage
+------------------------------------------------------------
+
+Base Image:
+
+eclipse-temurin:21-jdk
+
+Build Stage thực hiện:
+
+- Thiết lập thư mục /workspace.
+- Copy Maven Wrapper.
+- Copy pom.xml.
+- Tải Maven dependencies.
+- Copy source code.
+- Chạy Maven clean package.
+- Chạy toàn bộ 20 automated tests.
+- Tạo Spring Boot JAR.
+
+Build command:
+
+./mvnw -B clean package
+
+Nếu bất kỳ test nào thất bại:
+
+Docker Build thất bại.
+
+------------------------------------------------------------
+11.2 Runtime Stage
+------------------------------------------------------------
+
+Base Image:
+
+eclipse-temurin:21-jre
+
+Runtime Stage chỉ chứa:
+
+- Java 21 Runtime.
+- Spring Boot JAR.
+- Curl phục vụ Health Check.
+- Non-root user.
+
+Runtime Stage không chứa:
+
+- Maven.
+- Source code.
+- Test source.
+- Local target directory.
+- Git metadata.
+- IDE metadata.
+
+Lợi ích:
+
+- Tách build environment khỏi runtime environment.
+- Giảm các công cụ không cần thiết trong final image.
+- Giảm attack surface.
+- Runtime image rõ trách nhiệm hơn.
+
+============================================================
+12. CONTAINER SECURITY
+============================================================
+
+Ứng dụng không chạy bằng root.
+
+Dockerfile tạo:
+
+Group:
+
+spring
+
+User:
+
+spring
+
+Sau đó sử dụng:
+
+USER spring
+
+Log container xác nhận:
+
+Application được khởi động bởi user spring trong /app.
+
+Lợi ích:
+
+- Giảm quyền của process.
+- Giảm ảnh hưởng nếu application bị khai thác.
+- Tuân thủ nguyên tắc Least Privilege.
+
+Project không đưa vào image:
+
+- Password.
+- Access Token.
+- API Key.
+- .env.
+- Private Key.
+- Secret file.
+
+============================================================
+13. DOCKER IMAGE
+============================================================
+
+Image đã build:
+
+Repository:
+
+lo10-devops-lab
+
+Tag đầu tiên:
+
+1.0.0
+
+Tag sau khi thêm Health Check:
+
+1.0.1
+
+Build command:
+
+docker build \
+  --tag lo10-devops-lab:1.0.1 \
+  .
+
+Kiểm tra image:
+
+docker image ls lo10-devops-lab
+
+Image có thể được chạy độc lập bằng:
+
+docker run \
+  --detach \
+  --name lo10-devops-lab \
+  --publish 8081:8080 \
+  lo10-devops-lab:1.0.1
+
+Port Mapping:
+
+Host Mac:
+
+8081
+
+Container:
+
+8080
+
+Flow:
+
+localhost:8081
+      |
+      v
+Docker Port Mapping
+      |
+      v
+Container Port 8080
+      |
+      v
+Spring Boot Application
+
+============================================================
+14. DOCKER HEALTH CHECK
+============================================================
+
+Dockerfile sử dụng HEALTHCHECK.
+
+Endpoint:
+
+http://localhost:8080/actuator/health
+
+Cấu hình:
+
+- Interval: 30 giây.
+- Timeout: 5 giây.
+- Start Period: 20 giây.
+- Retries: 3.
+
+Khi Health Check thành công:
+
+Docker hiển thị:
+
+Up (healthy)
+
+Health Check giúp phân biệt:
+
+- Container process đang chạy.
+- Application thực sự sẵn sàng nhận request.
+
+Các probe đã kiểm tra:
+
+- General Health.
+- Liveness.
+- Readiness.
+
+Kết quả:
+
+status = UP
+
+============================================================
+15. GRACEFUL SHUTDOWN
+============================================================
+
+Ứng dụng cấu hình:
+
+server.shutdown=graceful
+
+Và:
+
+spring.lifecycle.timeout-per-shutdown-phase=20s
+
+Khi container nhận tín hiệu dừng:
+
+- Application ngừng nhận request mới.
+- Request đang xử lý được chờ hoàn tất.
+- Application Context được đóng.
+- Process kết thúc an toàn.
+
+Graceful Shutdown giúp:
+
+- Giảm request bị ngắt đột ngột.
+- Phù hợp môi trường container.
+- Phù hợp rolling deployment.
+- Tăng độ tin cậy khi scale hoặc restart service.
+
+============================================================
+16. DOCKER COMPOSE
+============================================================
+
+Project sử dụng:
+
+compose.yml
+
+Compose Service:
+
+app
+
+Compose cấu hình:
+
+- Docker Build Context.
+- Dockerfile.
+- Image Name.
+- Container Name.
+- Port Mapping.
+- Environment Variables.
+- JAVA_OPTS.
+- Restart Policy.
+- Health Check.
+
+Lệnh chạy:
+
+docker compose up \
+  --detach \
+  --build
+
+Kiểm tra:
+
+docker compose ps
+
+Xem log:
+
+docker compose logs app
+
+Theo dõi log:
+
+docker compose logs \
+  --follow \
+  app
+
+Dừng stack:
+
+docker compose down
+
+Kết quả:
+
+- Service chạy thành công.
+- Container có trạng thái healthy.
+- Health API hoạt động.
+- Message API hoạt động.
+- Container và network được dọn sau khi test.
+
+============================================================
+17. JVM CONTAINER OPTIONS
+============================================================
+
+Docker Compose truyền:
+
+JAVA_OPTS
+
+Các option:
+
+-XX:MaxRAMPercentage=75.0
+-XX:+ExitOnOutOfMemoryError
+
+MaxRAMPercentage:
+
+- Yêu cầu JVM sử dụng tối đa một tỷ lệ bộ nhớ phù hợp
+  với container.
+- Giảm nguy cơ JVM chiếm toàn bộ container memory.
+
+ExitOnOutOfMemoryError:
+
+- Yêu cầu JVM kết thúc khi OutOfMemoryError xảy ra.
+- Cho phép container platform phát hiện process đã dừng.
+- Cho phép restart policy hoặc orchestrator khởi động lại.
+
+============================================================
+18. STRUCTURED JSON LOGGING
+============================================================
+
+Spring Boot được cấu hình xuất Console Log theo
+Logstash JSON Format.
+
+Cấu hình:
+
+logging.structured.format.console=logstash
+
+Mỗi log là một JSON object độc lập.
+
+Các field cơ bản:
+
+- @timestamp.
+- @version.
+- message.
+- logger_name.
+- thread_name.
+- level.
+- level_value.
+
+Ví dụ:
+
+{
+  "@timestamp": "...",
+  "@version": "1",
+  "message": "Started Lo10DevopsLabApplication",
+  "logger_name": "...",
+  "thread_name": "main",
+  "level": "INFO"
+}
+
+Lợi ích:
+
+- Dễ parse tự động.
+- Dễ gửi đến logging platform.
+- Dễ tìm kiếm theo field.
+- Phù hợp môi trường container.
+- Phù hợp centralized logging.
+
+============================================================
+19. BUSINESS LOGGING
+============================================================
+
+MessageService sử dụng SLF4J Fluent Logging API.
+
+Không sử dụng:
+
+System.out.println
+
+Business log chứa structured field:
+
+- messageId.
+- operation.
+- removedMessageCount.
+
+Ví dụ:
+
+{
+  "message": "Message created successfully",
+  "messageId": 1,
+  "operation": "createMessage",
+  "level": "INFO"
+}
+
+Operation được sử dụng:
+
+- createMessage.
+- findMessage.
+- clearMessages.
+
+Lợi ích:
+
+- Tìm log theo operation.
+- Tìm log theo messageId.
+- Không cần parse message text.
+- Hỗ trợ điều tra lỗi tốt hơn.
+
+============================================================
+20. CORRELATION ID
+============================================================
+
+Ứng dụng sử dụng Header:
+
+X-Correlation-ID
+
+CorrelationIdFilter extends OncePerRequestFilter.
+
+Mỗi HTTP request đi qua Filter đúng một lần trong
+request dispatch thông thường.
+
+------------------------------------------------------------
+20.1 Client gửi Correlation ID
+------------------------------------------------------------
+
+Request Header:
+
+X-Correlation-ID: lo10-test-001
+
+Application:
+
+- Đọc Header.
+- Loại bỏ khoảng trắng.
+- Đưa giá trị vào MDC.
+- Trả lại cùng giá trị trong Response Header.
+
+Response:
+
+X-Correlation-ID: lo10-test-001
+
+------------------------------------------------------------
+20.2 Client không gửi Correlation ID
+------------------------------------------------------------
+
+Application tự tạo UUID.
+
+Ví dụ:
+
+4444fe3f-c312-4fbf-b339-262724349b8c
+
+UUID được:
+
+- Đưa vào MDC.
+- Gắn vào Response Header.
+- Xuất hiện trong Structured JSON Log.
+
+------------------------------------------------------------
+20.3 MDC Cleanup
+------------------------------------------------------------
+
+Sau khi request hoàn tất:
+
+MDC.remove("correlationId")
+
+Mục đích:
+
+- Tránh Correlation ID bị giữ lại.
+- Tránh rò rỉ context giữa các request.
+- An toàn khi Web Server tái sử dụng thread.
+
+============================================================
+21. REQUEST LOGGING
+============================================================
+
+CorrelationIdFilter ghi hai log chính:
+
+Request started:
+
+- HTTP method.
+- Request path.
+- Correlation ID.
+
+Request completed:
+
+- HTTP method.
+- Request path.
+- HTTP status.
+- Correlation ID.
+
+Ví dụ:
+
+{
+  "message": "HTTP request completed: method=GET, path=/api/health, status=200",
+  "correlationId": "lo10-test-001",
+  "level": "INFO"
+}
+
+Điều này cho phép tìm toàn bộ log của một request thông qua:
+
+correlationId
+
+============================================================
+22. GITHUB ACTIONS CI
+============================================================
+
+Workflow:
+
+.github/workflows/ci.yml
+
+Tên workflow:
+
+LO10 CI Pipeline
+
+Workflow được kích hoạt khi:
+
+- Push vào main.
+- Pull Request vào main.
+- Chạy thủ công bằng workflow_dispatch.
+
+Permissions:
+
+contents: read
+
+Pipeline không yêu cầu quyền ghi repository.
+
+============================================================
+23. JOB TEST AND PACKAGE
+============================================================
+
+Job:
+
+Test and Package
+
+Runner:
+
+ubuntu-latest
+
+Các bước:
+
+1. Checkout source code.
+2. Setup Java 21.
+3. Cấu hình Maven cache.
+4. Cấp quyền thực thi cho Maven Wrapper.
+5. Chạy Unit Test.
+6. Package Spring Boot JAR.
+7. Upload application JAR.
+8. Upload Surefire Test Reports.
+
+Test command:
+
+./mvnw --batch-mode clean test
+
+Package command:
+
+./mvnw --batch-mode package -DskipTests
+
+Tests đã được chạy ở bước trước nên bước package không chạy lại test.
+
+============================================================
+24. JOB BUILD DOCKER IMAGE
+============================================================
+
+Job:
+
+Build Docker Image
+
+Job phụ thuộc:
+
+Test and Package
+
+Cấu hình:
+
+needs:
+- test-and-package
+
+Điều này bảo đảm:
+
+Docker Image chỉ được build khi test và package thành công.
+
+Các bước:
+
+1. Checkout source code.
+2. Build Docker Image.
+3. Inspect Docker Image.
+
+Docker Image Tag trong CI sử dụng:
+
+GitHub Commit SHA.
+
+Ví dụ logic:
+
+lo10-devops-lab:<github-sha>
+
+Lợi ích:
+
+- Mỗi CI build có tag duy nhất.
+- Có thể truy vết image về commit.
+- Tránh ghi đè tag trong quá trình kiểm tra.
+
+============================================================
+25. CI ARTIFACTS
+============================================================
+
+Pipeline upload hai artifacts:
+
+lo10-devops-lab-jar
+
+Nội dung:
+
+target/*.jar
+
+lo10-test-reports
+
+Nội dung:
+
+target/surefire-reports/
+
+Retention:
+
+7 ngày
+
+Mục đích:
+
+JAR Artifact:
+
+- Chứng minh package thành công.
+- Cho phép tải build output.
+- Chuẩn bị cho Deployment Pipeline sau này.
+
+Test Reports:
+
+- Hỗ trợ điều tra test failure.
+- Lưu kết quả Surefire.
+- Có thể tích hợp report tool sau này.
+
+============================================================
+26. ACTION VERSIONS
+============================================================
+
+Workflow sử dụng:
+
+actions/checkout@v6
+actions/setup-java@v5
+actions/upload-artifact@v6
+
+Các action đã được cập nhật để:
+
+- Tránh phiên bản deprecated.
+- Sử dụng runtime mới hơn.
+- Giữ tính tương thích với GitHub-hosted runner.
+- Giảm warning trong CI.
+
+Thay đổi action version được thực hiện qua:
+
+- Feature branch.
+- Pull Request.
+- Required CI checks.
+- Squash Merge.
+
+============================================================
+27. CONCURRENCY CONTROL
+============================================================
+
+Workflow cấu hình concurrency:
+
+group:
+lo10-ci-${github.workflow}-${github.ref}
+
+cancel-in-progress:
+
+true
+
+Mục đích:
+
+- Chỉ giữ workflow mới nhất cho cùng branch hoặc reference.
+- Hủy workflow cũ khi có commit mới.
+- Giảm sử dụng CI runner không cần thiết.
+- Trả kết quả nhanh hơn cho thay đổi mới nhất.
+
+============================================================
+28. GIT WORKFLOW
+============================================================
+
+Project không thay đổi trực tiếp trên main.
+
+Quy trình:
+
+main
+  |
+  v
+Feature Branch
+  |
+  v
+Local Validation
+  |
+  v
+Commit
+  |
+  v
+Push Branch
+  |
+  v
+Pull Request
+  |
+  v
+CI Validation
+  |
+  v
+Squash and Merge
+  |
+  v
+main
+
+Các loại branch:
+
+- feature/
+- fix/
+- test/
+- docs/
+- ci/
+- chore/
+- refactor/
+
+Các branch đã thực hành:
+
+- ci/update-github-actions.
+- docs/add-project-readme.
+- docs/add-pr-template.
+- docs/add-git-workflow.
+- docs/add-lo10-assignment.
+
+============================================================
+29. CONVENTIONAL COMMITS
+============================================================
+
+Format:
+
+<type>: <mô-tả-ngắn>
+
+Các kiểu commit áp dụng:
+
+- feat.
+- fix.
+- test.
+- docs.
+- ci.
+- chore.
+- refactor.
+
+Các commit đã thực hành:
+
+feat: initialize LO10 DevOps lab
+
+ci: update GitHub Actions runtime versions
+
+docs: add project README
+
+docs: add pull request template
+
+docs: add Git workflow guide
+
+docs: add LO10 assignment report
+
+Lợi ích:
+
+- Commit dễ đọc.
+- Dễ phân loại thay đổi.
+- Hỗ trợ tự động tạo changelog sau này.
+- Hỗ trợ release automation.
+- Lịch sử Git nhất quán.
+
+============================================================
+30. PULL REQUEST TEMPLATE
+============================================================
+
+Project có file:
+
+.github/pull_request_template.md
+
+Template tự động xuất hiện khi tạo Pull Request mới.
+
+Các phần trong template:
+
+- Summary.
+- Type of Change.
+- Related Issue.
+- Changes.
+- Validation.
+- Docker Checklist.
+- Logging Checklist.
+- Security Checklist.
+- CI Checklist.
+- Git Checklist.
+- Reviewer Checklist.
+- Screenshots or Logs.
+- Additional Notes.
+
+Lợi ích:
+
+- Chuẩn hóa nội dung Pull Request.
+- Giảm thiếu thông tin.
+- Nhắc developer chạy test.
+- Nhắc kiểm tra Docker.
+- Nhắc kiểm tra Security.
+- Nhắc kiểm tra Logging.
+- Hỗ trợ reviewer đánh giá thay đổi.
+
+============================================================
+31. BRANCH PROTECTION
+============================================================
+
+Nhánh được bảo vệ:
+
+main
+
+Ruleset:
+
+Protect main
+
+Enforcement Status:
+
+Active
+
+Các rule:
+
+- Require Pull Request before merging.
+- Require status checks to pass.
+- Require branch to be up to date.
+- Block force pushes.
+- Restrict deletions.
+
+Required status checks:
+
+- Test and Package.
+- Build Docker Image.
+
+Required approvals:
+
+0
+
+Giá trị 0 phù hợp vì repository hiện là repository cá nhân.
+
+============================================================
+32. MERGE STRATEGY
+============================================================
+
+Project sử dụng:
+
+Squash and Merge
+
+Lợi ích:
+
+- Một Pull Request tạo một commit trên main.
+- Lịch sử main dễ đọc.
+- Không giữ commit thử nghiệm.
+- Dễ rollback một thay đổi hoàn chỉnh.
+- Commit trên main gắn với nội dung Pull Request.
+
+Sau merge:
+
+- Remote feature branch được xóa.
+- Local main được pull.
+- Local feature branch được xóa.
+- Remote references được prune.
+
+============================================================
+33. PULL REQUESTS ĐÃ THỰC HÀNH
+============================================================
+
+Pull Request cập nhật GitHub Actions:
+
+- Cập nhật setup-java.
+- Cập nhật upload-artifact.
+- Hai required checks thành công.
+- Merge vào main.
+
+Pull Request thêm README:
+
+- PR Template chưa áp dụng vì template chưa có trên main.
+- Hai required checks thành công.
+- README được merge vào main.
+
+Pull Request thêm PR Template:
+
+- Thêm checklist tự động.
+- Hai required checks thành công.
+- Template được merge vào main.
+
+Pull Request thêm Git Workflow:
+
+- PR Template tự động xuất hiện.
+- Checklist được sử dụng.
+- Hai required checks thành công.
+- Git Workflow được merge vào main.
+
+============================================================
+34. SECURITY
+============================================================
+
+Các nguyên tắc đã áp dụng:
+
+- Không commit password.
+- Không commit API Key.
+- Không commit token.
+- Không commit file .env.
+- Không commit private key.
+- Không đưa secret vào Docker Image.
+- Không chạy container bằng root.
+- GitHub Actions chỉ có contents: read.
+- Actuator chỉ public health và info.
+- Branch main chặn force push.
+- Branch main chặn deletion.
+- Mọi thay đổi phải qua Pull Request.
+- CI phải thành công trước khi merge.
+
+============================================================
+35. KẾT QUẢ ĐẠT ĐƯỢC
+============================================================
+
+Đã hoàn thành:
+
+- Spring Boot project độc lập cho LO10.
+- Health API.
+- Message API.
+- Jakarta Validation.
+- In-memory storage.
+- 20 automated tests.
+- Maven Wrapper.
+- Docker Build Context.
+- .dockerignore.
+- Multi-stage Dockerfile.
+- Java 21 Build Stage.
+- Java 21 Runtime Stage.
+- Non-root container.
+- Docker Health Check.
+- Docker Compose.
+- Graceful Shutdown.
+- JVM Container Options.
+- Structured JSON Logging.
+- Structured Business Fields.
+- Correlation ID.
+- MDC Cleanup.
+- GitHub Actions CI.
+- Maven Test trong CI.
+- Maven Package trong CI.
+- Upload JAR Artifact.
+- Upload Test Reports.
+- Docker Image Build trong CI.
+- Concurrency Control.
+- Feature Branch Workflow.
+- Conventional Commits.
+- Pull Request Template.
+- Required CI Checks.
+- Branch Protection.
+- Squash and Merge.
+- Git Workflow Documentation.
+
+============================================================
+36. GIỚI HẠN HIỆN TẠI
+============================================================
+
+Project hiện tập trung vào Continuous Integration.
+
+Chưa triển khai Continuous Deployment tới:
+
+- Production Server.
+- AWS ECS.
+- Azure Container Apps.
+- Kubernetes.
+- Virtual Machine.
+- Docker Registry.
+- GitHub Container Registry.
+- Docker Hub.
+
+Docker Image trong CI hiện chỉ được build và inspect.
+
+Image chưa được push lên Registry.
+
+Project chưa triển khai:
+
+- Production Secrets Management.
+- Environment-specific Deployment.
+- Blue-Green Deployment.
+- Canary Deployment.
+- Automated Rollback.
+- Infrastructure as Code.
+- Kubernetes Manifest.
+- Helm Chart.
+
+Các nội dung trên có thể được phát triển ở các LO
+hoặc Assignment nâng cao hơn.
+
+============================================================
+37. KẾT LUẬN
+============================================================
+
+Project lo10-devops-lab đã đáp ứng mục tiêu LO10
+ở phạm vi thực hành local và Continuous Integration.
+
+Ứng dụng đã được:
+
+- Kiểm thử tự động.
+- Package bằng Maven.
+- Container hóa bằng Docker.
+- Chạy bằng Docker Compose.
+- Theo dõi bằng Health Check.
+- Ghi log dưới dạng Structured JSON.
+- Gắn Correlation ID cho mỗi request.
+- Kiểm tra tự động bằng GitHub Actions.
+- Bảo vệ nhánh main bằng Ruleset.
+- Quản lý thay đổi thông qua Pull Request.
+
+Pipeline hoàn chỉnh:
+
+Developer thay đổi code
+        |
+        v
+Feature Branch
+        |
+        v
+Local Maven Test
+        |
+        v
+Commit theo Conventional Commits
+        |
+        v
+Push Branch
+        |
+        v
+Pull Request
+        |
+        v
+GitHub Actions
+        |
+        +---- Test and Package
+        |
+        `---- Build Docker Image
+        |
+        v
+Required Checks thành công
+        |
+        v
+Squash and Merge
+        |
+        v
+Protected main branch
+
+Kết quả cuối:
+
+Tests run: 20
+Failures: 0
+Errors: 0
+Skipped: 0
+
+Docker Image Build: SUCCESS
+Docker Container Health: HEALTHY
+Docker Compose: SUCCESS
+GitHub Actions CI: SUCCESS
+Branch Protection: ACTIVE
+
+============================================================
+END OF LO10_ASSIGNMENT.txt
+============================================================
